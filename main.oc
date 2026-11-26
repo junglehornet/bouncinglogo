@@ -1,7 +1,7 @@
 package main;
+
 import "time";
 import "os/exec";
-
 import "term";
 import "unicode";
 import "io";
@@ -11,7 +11,8 @@ import "unicode/utf8";
 import "term/tui";
 
 struct Model {
-    logo []string;
+    logos [][]string;
+    selected int;
     width, height int;
     x, y int;
     vx int : 3; // -2 or 2
@@ -21,20 +22,10 @@ struct Model {
 
 struct Tick {}
 
-func newModel() Model {
-    m: Model; // m is zero-initialized so we don't need to set x and y to 0
-    m.x = 0;
-    m.y = 0;
-    m.vx = 2;
-    m.vy = 1;
-    m.tickms = 200;
-    cmd := exec.Command("ocean", "logo");
-    logoFull := cmd.Output().unwrap();
-    logoSplit := strings.Split(logoFull, "\n");
-    m.logo = logoSplit;
-    m.height = len(logoSplit);
+func (m *Model) updateSize() {
+    m.height = len(m.logos[m.selected]);
     x := 0;
-    runes := utf8.Runes(logoSplit[0]);
+    runes := utf8.Runes(m.logos[m.selected][0]);
     for (i := 0; i < len(runes); i++) {
         r := runes[i];
         for (r == '\033') {
@@ -49,6 +40,22 @@ func newModel() Model {
         if (unicode.IsPrint(r)) x++; // this just counts how many *printable* characters there are, not how wide each one is, so non-standard width chars will break this.
     }
     m.width = x;
+}
+
+func newModel() Model {
+    m: Model; // m is zero-initialized so we don't need to set x and y to 0
+    m.x = 0;
+    m.y = 0;
+    m.vx = 2;
+    m.vy = 1;
+    m.tickms = 200;
+    for (i := 1; i <= 4; i++) {
+        logoFull := os.Open(io.Sprintf("logo{}.ansi", i).unwrap(), os.FileMode.Read).unwrap().Readall().unwrap()[:]->string;
+        logoSplit := strings.Split(logoFull, "\n");
+        m.logos.append(logoSplit);
+    }
+    m.selected = 0;
+    m.updateSize();
     return m;
 }
 
@@ -58,7 +65,7 @@ func (m Model) View() string {
     for (y := 0; y < size.Height; y++) {
         for (x := 0; x < size.Width; x++) {
             if (offset := y - m.y; x == m.x && offset >= 0 && offset < m.height) {
-                str += m.logo[offset];
+                str += m.logos[m.selected][offset];
                 x += m.width - 1;
             } else {
                 str += " ";
@@ -76,6 +83,17 @@ func (m Model) Update(message tui.Msg) (tui.Model, tui.Cmd) {
             if (event.Key == "ctrl+c" || event.Text == "q") return m, tui.Quit;
             if (event.Key == "up" && m.tickms > 50) m.tickms -= 50;
             if (event.Key == "down" && m.tickms < 1000) m.tickms += 50;
+            if (event.Key == "left") {
+                m.selected -= 1;
+                for (m.selected < 0) m.selected += len(m.logos);
+                m.updateSize();
+                return m, tui.NoCmd;
+            }
+            if (event.Key == "right") {
+                m.selected = (m.selected + 1) % len(m.logos);
+                m.updateSize();
+                return m, tui.NoCmd;
+            }
         case Tick:
             size := term.GetSize(os.Stdin().unwrap()).unwrap();
 
